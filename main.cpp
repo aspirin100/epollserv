@@ -1,10 +1,13 @@
 #include <iostream>
-#include <sys/epoll.h>
+#include <memory>
 
+#include "server.h"
 
 int main()
 {
-    std::cout << "Hi\n";
+    std::unique_ptr<Server> server(new Server(8888));
+    server->Start();
 
+    std::cout << "correctly shutdowned\n";
     return 0;
 }
