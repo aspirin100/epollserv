@@ -2,13 +2,16 @@
 #define SERVER_H
 
 #include <cstdint>
+#include <memory>
+#include <sys/types.h>
+#include <netinet/in.h>
 
 class Server
 {
 private:
-    uint16_t port_;
+    std::unique_ptr<sockaddr_in> addr_info_; 
 
-    Server(const uint16_t& port): port_{port}{}
+    Server(const uint16_t& port);
     static Server* server_;
 
 public:
@@ -20,6 +23,8 @@ public:
     static Server* CreateServer(const uint16_t& port);
 
     ~Server();
+
+    void Start();
 };
 
 #endif
