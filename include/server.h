@@ -3,13 +3,15 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <sys/types.h>
 #include <netinet/in.h>
 
-class Server
+class Server final
 {
 private:
     std::unique_ptr<sockaddr_in> addr_info_; 
+    int listener_fd_;
 
     Server(const uint16_t& port);
     static Server* server_;
@@ -20,7 +22,7 @@ public:
     Server& operator=(const Server&) = delete;
     Server& operator=(const Server&&) = delete;
     
-    static Server* CreateServer(const uint16_t& port);
+    static std::optional<Server*> CreateServer(const uint16_t& port);
 
     ~Server();
 

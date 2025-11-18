@@ -10,9 +10,15 @@
 int main()
 {
     uint16_t port = 8888;
-    Server* serv = Server::CreateServer(port);
+    
+    std::optional<Server*> serv = Server::CreateServer(port);
+    if(!serv)
+    {
+        std::cout << "failed to create server\n";
+        return -1;
+    }
 
-    serv->Start();
+    (*serv)->Start();
 
     return 0;
 }
