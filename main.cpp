@@ -9,7 +9,7 @@
 
 int main()
 {
-    uint16_t port = 8888;
+    constexpr uint16_t port = 8888;
     
     std::optional<Server*> serv = Server::CreateServer(port);
     if(!serv)
