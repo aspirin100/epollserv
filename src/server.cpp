@@ -1,4 +1,5 @@
 #include "server.h"
+#include "fd.h"
 
 #include <cstdint>
 #include <optional>
@@ -6,6 +7,7 @@
 #include <cstdio>
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/epoll.h>
 #include <unistd.h>
 #include <netinet/in.h>
 
@@ -18,12 +20,20 @@ Server::Server(const uint16_t& port): addr_info_{new sockaddr_in}
 
 Server* Server::server_ = nullptr;
 std::optional<Server*> Server::CreateServer(const uint16_t& port){
-    if(!server_)
-        server_ = new Server(port);
+    if(server_)
+        return server_
+       
+    server_ = new Server(port);
 
-    if(server_->listener_fd_ = socket(AF_INET, SOCK_STREAM, 0); server_->listener_fd_ < 0)
+    if(server_->conn_listener_.fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); server_->conn_listener_.fd < 0)
     {
       perror("failed to open socket: ");
+      return std::nullopt;
+    } 
+
+    if(server_->epoll_fd_.fd = epoll_create1(0); server_->epoll_fd_.fd < 0)
+    {
+      perror("failed to open epoll sock: ");
       return std::nullopt;
     }  
 
@@ -37,43 +47,56 @@ Server::~Server()
 
 void Server::Start()
 {
-    if(bind(listener_fd_, reinterpret_cast<sockaddr*>(addr_info_.get()), sizeof(*addr_info_)) < 0)
+    if(bind(conn_listener_.fd, reinterpret_cast<sockaddr*>(addr_info_.get()), sizeof(*addr_info_)) < 0)
     {
         perror("failed to bind the socket:");
         return;
     } 
 
-    if(listen(listener_fd_, SOMAXCONN) < 0)
+    if(listen(conn_listener_.fd, SOMAXCONN) < 0)
     {
         perror("error on listen():");
         return;
     }
 
-    auto socket_closer = [](int* fd)
+    EventLoop();
+}
+
+void Server::EventLoop()
+{
+    epoll_event event;
+    event.fd = conn_listener_.fd;
+    event.event = EPOLLIN;
+
+    constexpr int MAX_EVENTS = 64;
+    epoll_event catched_events[MAX_EVENTS];
+
+    if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_ADD, conn_listener_.fd, &event) < 0)
     {
-        if(fd)
-            close(*fd);
-        delete(fd);
-    };
+        perror("failed to add listener socket into tracking events list:");
+        return;
+    }
 
     while(true)
     {
-        auto client_sfd = std::unique_ptr<int, decltype(socket_closer)>(new int, socket_closer);
+        int n = epoll_wait(epoll_fd_.fd, catched_events, MAX_EVENTS, -1);
 
-        if(*client_sfd = accept(listener_fd_, nullptr, nullptr); *client_sfd < 0)
+        if(n < 0)
         {
-            perror("accept() failed:");
-            continue;
+            perror("epoll_wait fail:");
+            continue
         }
-        
-        char buff[1024];
-        while(true)
-        {
-            int readed = recv(*client_sfd, buff, 1024, 0);
 
-            if(readed <= 0) break;
-            printf("readed from client: %s\n", buff);
-            send(*client_sfd, buff, readed, 0);
+        for(int i = 0; i < n; ++i)
+        {
+            HandleEvent(catched_events[i]);
         }
     }
 }
+
+void Server::HadleEvent(const epoll_event& event)
+{
+
+}
+
+
