@@ -43,7 +43,7 @@ private:
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
-    std::string ReadMsg(const int& client_fd);
+    void ReadMsg(const int& client_fd);
     void ProccessMsg(const int& client_fd, const std::string& msg);
 };
 

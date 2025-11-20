@@ -11,12 +11,13 @@
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <netinet/in.h>
+#include <errno.h>
 
 Server::Server(const uint16_t& port): addr_info_{new sockaddr_in}
 {
     addr_info_->sin_port = htons(port);
     addr_info_->sin_family = AF_UNSPEC;
-    addr_info_->sin_addr.s_addr = INADDR_ANY;
+    addr_info_->sin_addr.s_addr = INADDR_ANY;   
 }
 
 Server* Server::server_ = nullptr;
@@ -43,7 +44,14 @@ std::optional<Server*> Server::CreateServer(const uint16_t& port){
 
 Server::~Server()
 {
-  if(server_) delete server_;
+    for(const auto& client_fd : active_clients_)
+    {
+        if(close(client_fd) < 0)
+            perror("failed to close client's socket:");
+    }
+    
+    if(server_)
+        delete server_;
 }
 
 void Server::Start()
@@ -101,7 +109,7 @@ void Server::HandleEvent(const epoll_event& event)
         event.events & EPOLLHUP ||
         !(event.events & EPOLLIN))
     {
-        std::cerr << "epoll error on socket: " << event.data.fd << '\n';
+        std::cout << "epoll error on socket: " << event.data.fd << '\n';
         CloseConnection(event.data.fd);
         return;
     }
@@ -112,12 +120,15 @@ void Server::HandleEvent(const epoll_event& event)
         return;   
     }
 
-    std::string msg = ReadMsg(event.data.fd);
-    ProccessMsg(event.data.fd, msg);
+    ReadMsg(event.data.fd);
 }
 
 void Server::CloseConnection(const int& fd)
 {
+    if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_DEL, fd, nullptr) < 0)
+        perror("failed to remove client from tracked clients:");
+
+    close(fd);
     active_clients_.erase(fd);
 }
 
@@ -130,25 +141,47 @@ void Server::AcceptConnection()
         return;
     }
 
+    epoll_event client_event;
+    client_event.data.fd = client_fd;
+    client_event.events = EPOLLIN;
+
+    if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_ADD, client_fd, &client_event) < 0)
+    {
+        perror("failed to add client socket into tracking events list:");
+        return;
+    }
+
     active_clients_.emplace(client_fd);
     ++total_clients_;
 }
 
-std::string Server::ReadMsg(const int& client_fd)
+void Server::ReadMsg(const int& client_fd)
 {
-    auto client = active_clients_.find(client_fd);
-    if(client == active_clients_.end())
-        return {};
-    
     constexpr int BUFFSIZE = 128;
-    char buff[BUFFSIZE];
-    std::string msg;
+    while(true)
+    {
+        char buff[BUFFSIZE];
+        int received = recv(client_fd, buff, BUFFSIZE-1, 0);
+        
+        if(received == 0)
+        {
+            CloseConnection(client_fd);
+            break;
+        }
 
-    int received = recv(client_fd, buff, BUFFSIZE, 0);
-    while(received > 0)
-        msg.append(buff);
+        if(received < 0)
+        {
+            if(errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
 
-    return msg;
+            perror("recv failed:");
+            CloseConnection(client_fd);
+            break;
+        }
+
+        buff[received] = '\0';
+        ProccessMsg(client_fd, buff);   
+    }
 }
 
 void Server::ProccessMsg(const int& client_fd, const std::string& msg)
