@@ -2,12 +2,13 @@
 #define SERVER_H
 
 #include "fd.h"
+#include "client.h"
 
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
-#include <unordered_set>
+#include <unordered_map>
 #include <sys/types.h>
 #include <sys/epoll.h>
 #include <netinet/in.h>
@@ -15,7 +16,7 @@
 class Server final
 {
 private:
-    std::unordered_set<int> active_clients_;
+    std::unordered_map<int, Client> active_clients_;
     int total_clients_ = 0; // not unique total clients count
 
     std::unique_ptr<sockaddr_in> addr_info_ = nullptr;
@@ -45,6 +46,15 @@ private:
     void HandleEvent(const epoll_event& event);
     void ReadMsg(const int& client_fd);
     void ProccessMsg(const int& client_fd, const std::string& msg);
+
+    void ShowStats(const int& client_fd);
+    void GetTime(const int& client_fd);
+    void Shutdown();
+    void SendMsg(const int& client_fd, const std::string& str);
+
+    std::optional<Client*> GetClient(const int& client_fd);
+    void SaveIntoClientBuff(Client& client, const std::string& msg);
+    void ClearClientBuff(Client& client);
 };
 
 #endif
