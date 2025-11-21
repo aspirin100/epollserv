@@ -22,6 +22,7 @@
 #include <unistd.h>
 #include <netinet/in.h>
 #include <errno.h>
+#include <fcntl.h>
 
 Server::Server(const uint16_t& port): addr_info_{new sockaddr_in}
 {
@@ -91,22 +92,32 @@ void Server::EventLoop()
 
 void Server::HandleEvent(const epoll_event& event)
 {
-    if(event.events & EPOLLERR ||
-        event.events & EPOLLHUP ||
-        !(event.events & EPOLLIN))
+    if(event.events & EPOLLERR || event.events & EPOLLHUP)
     {
         std::cout << "epoll error on socket: " << event.data.fd << '\n';
         CloseConnection(event.data.fd);
         return;
     }
 
-    if(event.data.fd == conn_listener_.fd)
+    if(event.events & EPOLLIN)
     {
-        AcceptConnection();
-        return;   
-    }
+        if(event.data.fd == conn_listener_.fd)
+        {
+            AcceptConnection();
+            return;   
+        }
 
-    ReadMsg(event.data.fd);
+        ReadMsg(event.data.fd);
+    }
+    
+    if(event.events & EPOLLOUT)
+    {
+        auto client = GetClient(event.data.fd);
+        if (!client)
+            return;
+
+        SendMsg(event.data.fd, (*client)->GetSendBuff());
+    }
 }
 
 void Server::CloseConnection(const int& fd)
@@ -126,6 +137,9 @@ void Server::AcceptConnection()
         perror("accept fail");
         return;
     }
+
+    int flags = fcntl(client_fd, F_GETFL, 0);
+    fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
 
     epoll_event client_event;
     client_event.data.fd = client_fd;
