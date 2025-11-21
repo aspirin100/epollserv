@@ -2,10 +2,20 @@
 #include "fd.h"
 
 #include <iostream>
+
+// for uint16_t-like types
 #include <cstdint>
+
+// for time outputting
+#include <chrono>
+#include <ctime>
+
 #include <optional>
 #include <memory>
+
 #include <cstdio>
+#include <cstdlib>
+
 #include <sys/types.h>
 #include <sys/socket.h>
 #include <sys/epoll.h>
@@ -162,19 +172,16 @@ void Server::ReadMsg(const int& client_fd)
 void Server::ProccessMsg(const int& client_fd, const std::string& msg)
 {
     if(msg == "/stats") 
-        ShowStats(client_fd);
+        SendStats(client_fd);
     else if(msg == "/time")
-        GetTime(client_fd);
+        SendCurrentTime(client_fd);
     else if(msg == "/shutdown")
         Shutdown();
     else
         SendMsg(client_fd, msg);
 }
 
-void Server::ShowStats(const int& client_fd){}
-void Server::GetTime(const int& client_fd){}
 void Server::Shutdown(){}
-
 
 void Server::SendMsg(const int&  client_fd, const std::string& msg)
 {
@@ -251,4 +258,29 @@ void Server::ClearClientBuff(Client& client)
 
     if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_MOD, client.GetFD(), &client_event) < 0)
         perror("failed to set EPOLLIN to client tracking events");
+}
+
+void Server::SendStats(const int& client_fd)
+{   
+    constexpr int BUFFSIZE = 64;
+    char buff[BUFFSIZE];
+
+    std::snprintf(buff, BUFFSIZE, "current active clients: %d", active_clients_.size());
+
+    SendMsg(client_fd, buff);
+}
+
+void Server::SendCurrentTime(const int& client_fd)
+{
+    const std::string time_format{"2025-11-10 00:00:00"};
+
+    const int BUFFSIZE = time_format.size()+1;
+    char buff[BUFFSIZE];
+
+    auto now_timepoint = std::chrono::system_clock::now();
+    auto now_time_t = std::chrono::system_clock::to_time_t(now_timepoint);
+
+    std::strftime(buff, BUFFSIZE, "%F %T", std::localtime(&now_time_t));
+
+    SendMsg(client_fd, buff);
 }

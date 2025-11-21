@@ -42,8 +42,8 @@ private:
     void ReadMsg(const int& client_fd);
     void ProccessMsg(const int& client_fd, const std::string& msg);
 
-    void ShowStats(const int& client_fd);
-    void GetTime(const int& client_fd);
+    void SendStats(const int& client_fd);
+    void SendCurrentTime(const int& client_fd);
     void Shutdown();
     void SendMsg(const int& client_fd, const std::string& str);
 
