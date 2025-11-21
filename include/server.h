@@ -23,19 +23,14 @@ private:
     FD conn_listener_{-1};
     FD epoll_fd_{-1};
 
-    Server(const uint16_t& port);
-    static Server* server_;
-
 public:
+    Server(const uint16_t& port);
+
     Server(const Server&) = delete;
     Server(const Server&&) = delete;
     Server& operator=(const Server&) = delete;
     Server& operator=(const Server&&) = delete;
     
-    static std::optional<Server*> CreateServer(const uint16_t& port);
-
-    ~Server();
-
     void Start();
 
 private:

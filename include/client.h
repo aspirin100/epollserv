@@ -13,6 +13,7 @@ private:
 
 public:
     explicit Client(const int& fd): fd_{fd} {}
+    void AppendBuff(const std::string& msg) { send_buff_.append(msg); }
     void SaveBuff(const std::string& msg){ send_buff_ = msg; }
     void ClearBuff() { send_buff_.clear(); }
 

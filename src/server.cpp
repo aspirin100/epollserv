@@ -18,34 +18,16 @@ Server::Server(const uint16_t& port): addr_info_{new sockaddr_in}
     addr_info_->sin_port = htons(port);
     addr_info_->sin_family = AF_UNSPEC;
     addr_info_->sin_addr.s_addr = INADDR_ANY;   
-}
 
-Server* Server::server_ = nullptr;
-std::optional<Server*> Server::CreateServer(const uint16_t& port){
-    if(server_)
-        return server_;
-       
-    server_ = new Server(port);
-
-    if(server_->conn_listener_.fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); server_->conn_listener_.fd < 0)
+    if(conn_listener_.fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); conn_listener_.fd < 0)
     {
       perror("failed to open socket");
-      return std::nullopt;
     } 
 
-    if(server_->epoll_fd_.fd = epoll_create1(0); server_->epoll_fd_.fd < 0)
+    if(epoll_fd_.fd = epoll_create1(0); epoll_fd_.fd < 0)
     {
       perror("failed to open epoll sock");
-      return std::nullopt;
     }  
-
-    return server_;
-}
-
-Server::~Server()
-{   
-    if(server_)
-        delete server_;
 }
 
 void Server::Start()
@@ -200,23 +182,20 @@ void Server::SendMsg(const int&  client_fd, const std::string& msg)
     if(!client)
         return;
 
-    std::string msg_to_send = (*client)->GetSendBuff() + msg;
-
-    if(!(*client)->IsBuffEmpty())
-        ClearClientBuff(*(client.value()));
-
+    (*client)->AppendBuff(msg);
+    std::string msg_to_send = (*client)->GetSendBuff();
+    
     int total_sent = 0;
-
     while(total_sent < msg_to_send.size())
     {
-        auto send_pos = msg_to_send.c_str() + (sizeof(char)*total_sent);
+        auto send_pos = msg_to_send.c_str() + total_sent;
 
-        int sent = send(client_fd, send_pos, 5, 0);
+        int sent = send(client_fd, send_pos, msg_to_send.size()-total_sent, 0);
         if(sent < 0)
         {
             if(errno == EAGAIN || errno == EWOULDBLOCK)
             {
-                SaveIntoClientBuff(*(client.value()), msg);
+                SaveIntoClientBuff(*(client.value()), msg_to_send.substr(total_sent));
                 break;
             }
 
@@ -226,10 +205,16 @@ void Server::SendMsg(const int&  client_fd, const std::string& msg)
         }
 
         if(sent == 0)
+        {
+            CloseConnection(client_fd);
             break;
-
+        }
+            
         total_sent += sent;
     }
+
+    if(total_sent == msg_to_send.size())
+        ClearClientBuff(*(client.value()));
 }
 
 std::optional<Client*> Server::GetClient(const int& fd)
@@ -243,30 +228,27 @@ std::optional<Client*> Server::GetClient(const int& fd)
 
 void Server::SaveIntoClientBuff(Client& client, const std::string& msg)
 {
-    epoll_event client_event;
-    client_event.data.fd = client.GetFD();
-    client_event.events = EPOLLIN | EPOLLOUT;
-
-    if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_MOD, client.GetFD(), &client_event) < 0)
-    {
-        perror("failed to add EPOLLOUT into client tracking events");
-        return;
-    }
-
     client.SaveBuff(msg);
+
+    if(!client.IsBuffEmpty())
+    {
+        epoll_event client_event;
+        client_event.data.fd = client.GetFD();
+        client_event.events = EPOLLIN | EPOLLOUT;
+
+        if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_MOD, client.GetFD(), &client_event) < 0)
+            perror("failed to add EPOLLOUT into client tracking events");
+    }   
 }
 
 void Server::ClearClientBuff(Client& client)
 {
+    client.ClearBuff();
+
     epoll_event client_event;
     client_event.data.fd = client.GetFD();
     client_event.events = EPOLLIN;
 
     if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_MOD, client.GetFD(), &client_event) < 0)
-    {
         perror("failed to set EPOLLIN to client tracking events");
-        return;
-    }
-
-    client.ClearBuff();
 }
