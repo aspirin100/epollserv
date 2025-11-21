@@ -23,6 +23,7 @@ private:
     FD conn_listener_{-1};
     FD epoll_fd_{-1};
 
+    bool shutdown_requested_ = false;
 public:
     Server(const uint16_t& port);
 

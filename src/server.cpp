@@ -72,7 +72,7 @@ void Server::EventLoop()
         return;
     }
 
-    while(true)
+    while(!shutdown_requested_)
     {
         int n = epoll_wait(epoll_fd_.fd, catched_events, MAX_EVENTS, -1);
 
@@ -111,6 +111,7 @@ void Server::HandleEvent(const epoll_event& event)
 
 void Server::CloseConnection(const int& fd)
 {
+    // probably excess if epoll automatically don't track closed fd
     if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_DEL, fd, nullptr) < 0)
         perror("failed to remove client from tracked clients");
 
@@ -180,8 +181,6 @@ void Server::ProccessMsg(const int& client_fd, const std::string& msg)
     else
         SendMsg(client_fd, msg);
 }
-
-void Server::Shutdown(){}
 
 void Server::SendMsg(const int&  client_fd, const std::string& msg)
 {
@@ -283,4 +282,11 @@ void Server::SendCurrentTime(const int& client_fd)
     std::strftime(buff, BUFFSIZE, "%F %T", std::localtime(&now_time_t));
 
     SendMsg(client_fd, buff);
+}
+
+void Server::Shutdown()
+{
+    addr_info_.reset();
+    active_clients_.clear();
+    shutdown_requested_ = true;
 }
