@@ -67,7 +67,7 @@ void Server::EventLoop()
     event.data.fd = conn_listener_.GetFD();
     event.events = EPOLLIN;
 
-    constexpr int MAX_EVENTS = 64;
+    constexpr int MAX_EVENTS = 64; //
     epoll_event catched_events[MAX_EVENTS];
 
     if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_ADD, conn_listener_.GetFD(), &event) < 0)
@@ -81,7 +81,7 @@ void Server::EventLoop()
         int n = epoll_wait(epoll_fd_.GetFD(), catched_events, MAX_EVENTS, -1);
 
         if(n < 0)
-        {
+        {r
             perror("epoll_wait fail");
             continue;
         }
@@ -160,11 +160,7 @@ void Server::AcceptConnection()
 
 void Server::ReadMsg(const int client_fd)
 {
-    // auto client = GetClientInfo(client_fd);
-    // if(!client)
-    //     return;
-
-    constexpr int BUFFSIZE = 128;
+    constexpr int BUFFSIZE = 1 << 14; // 2**14 bytes
     
     while(true)
     {
