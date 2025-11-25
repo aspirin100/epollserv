@@ -27,7 +27,7 @@ public:
     bool IsReadBuffEmpty() { return to_read_buff_.empty(); }
     std::string GetReadBuff(){ return to_read_buff_; }
 
-    int GetFD() { return fd_.fd; }
+    int GetFD() { return fd_.GetFD(); }
 };
 
 #endif
