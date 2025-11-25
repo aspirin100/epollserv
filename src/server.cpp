@@ -160,7 +160,12 @@ void Server::AcceptConnection()
 
 void Server::ReadMsg(const int client_fd)
 {
+    auto client = GetClientInfo(client_fd);
+    if(!client)
+        return;
+
     constexpr int BUFFSIZE = 128;
+    
     while(true)
     {
         char buff[BUFFSIZE];
@@ -182,9 +187,18 @@ void Server::ReadMsg(const int client_fd)
             break;
         }
 
-        buff[received] = '\0';
-        ProccessMsg(client_fd, buff);   
-    }
+        if(buff[received-1] =='\0' || buff[received-1] == '\n')    
+        {
+            (*client)->AppendReadBuff(buff);
+            ProccessMsg(client_fd, (*client)->GetReadBuff());           
+            (*client)->ClearReadBuff();
+        }
+        else
+        {
+            buff[received] = '\0';
+            (*client)->AppendReadBuff(buff);
+        }
+    } 
 }
 
 void Server::ProccessMsg(const int client_fd, const std::string& msg)

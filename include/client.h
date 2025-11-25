@@ -22,7 +22,7 @@ public:
     std::string GetSendBuff(){ return to_send_buff_; }
 
     void AppendReadBuff(const std::string& msg) { to_read_buff_.append(msg); }
-    void SaveReadBuff(const std::string& msg){ to_send_buff_ = msg; }
+    void SaveReadBuff(const std::string& msg){ to_read_buff_ = msg; }
     void ClearReadBuff() { to_read_buff_.clear(); }
     bool IsReadBuffEmpty() { return to_read_buff_.empty(); }
     std::string GetReadBuff(){ return to_read_buff_; }
