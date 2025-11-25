@@ -205,7 +205,7 @@ void Server::SendMsg(const int client_fd, const std::string& msg)
     if(!client)
         return;
 
-    (*client)->AppendBuff(msg);
+    (*client)->AppendSendBuff(msg);
     std::string msg_to_send = (*client)->GetSendBuff();
     
     int total_sent = 0;
@@ -251,9 +251,9 @@ std::optional<ClientInfo*> Server::GetClientInfo(const int fd)
 
 void Server::SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg)
 {
-    client.SaveBuff(msg);
+    client.SaveSendBuff(msg);
 
-    if(!client.IsBuffEmpty())
+    if(!client.IsSendBuffEmpty())
     {
         epoll_event client_event;
         client_event.data.fd = client.GetFD();
@@ -266,7 +266,7 @@ void Server::SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg)
 
 void Server::ClearClientInfoBuff(ClientInfo& client)
 {
-    client.ClearBuff();
+    client.ClearSendBuff();
 
     epoll_event client_event;
     client_event.data.fd = client.GetFD();
