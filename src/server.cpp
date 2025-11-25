@@ -1,5 +1,6 @@
 #include "server.h"
 #include "fd.h"
+#include "event.h"
 
 #include <iostream>
 
@@ -33,15 +34,14 @@ Server::Server(const uint16_t port): addr_info_{sockaddr_in{}}
     if(conn_listener_.SetFD(socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)); conn_listener_.GetFD() < 0)
     {
       perror("failed to open socket");
+      return;
     } 
 
     int opt = 1;
     setsockopt(conn_listener_.GetFD(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     if(epoll_fd_.SetFD(epoll_create1(0)); epoll_fd_.GetFD() < 0)
-    {
       perror("failed to open epoll sock");
-    }  
 }
 
 void Server::Start()
@@ -64,10 +64,10 @@ void Server::Start()
 void Server::EventLoop()
 {
     epoll_event event;
-    event.data.fd = conn_listener_.GetFD();
+    event.data.ptr = new ServerEvent(); // TODO: HOW TO CLEAN??
     event.events = EPOLLIN;
 
-    constexpr int MAX_EVENTS = 64; //
+    constexpr int MAX_EVENTS = 64;
     epoll_event catched_events[MAX_EVENTS];
 
     if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_ADD, conn_listener_.GetFD(), &event) < 0)
@@ -81,14 +81,14 @@ void Server::EventLoop()
         int n = epoll_wait(epoll_fd_.GetFD(), catched_events, MAX_EVENTS, -1);
 
         if(n < 0)
-        {r
+        {
             perror("epoll_wait fail");
             continue;
         }
 
         for(int i = 0; i < n; ++i)
         {
-            HandleEvent(catched_events[i]); // handler
+            HandleEvent(catched_events[i]);
         }
     }
 }
@@ -98,38 +98,36 @@ void Server::HandleEvent(const epoll_event& event)
     if(event.events & EPOLLERR || event.events & EPOLLHUP)
     {
         std::cout << "epoll error on socket: " << event.data.fd << '\n';
-        CloseConnection(event.data.fd);
+        CloseConnection(static_cast<ClientEvent*>(event.data.ptr)->client);
         return;
     }
 
     if(event.events & EPOLLIN)
     {
-        if(event.data.fd == conn_listener_.GetFD())
+        if(static_cast<BaseEvent*>(event.data.ptr)->type == EventType::SERVER)
         {
             AcceptConnection();
             return;   
         }
 
-        ReadMsg(event.data.fd);
+        ReadMsg(static_cast<ClientEvent*>(event.data.ptr)->client);
     }
     
     if(event.events & EPOLLOUT)
     {
-        auto client = GetClientInfo(event.data.fd);
-        if (!client)
-            return;
-
-        SendMsg(event.data.fd, (*client)->GetSendBuff());
+        auto client = static_cast<ClientEvent*>(event.data.ptr)->client;
+        SendMsg(client, client->GetBuff());
     }
 }
 
-void Server::CloseConnection(const int fd)
+void Server::CloseConnection(ClientInfo* client)
 {
     // probably excess if epoll automatically don't track closed fd
-    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_DEL, fd, nullptr) < 0)
+    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_DEL, client->GetFD(), nullptr) < 0)
         perror("failed to remove client from tracked clients");
 
-    active_clients_.erase(fd);
+    delete client;
+    --active_clients_count_;
 }
 
 void Server::AcceptConnection()
@@ -145,7 +143,7 @@ void Server::AcceptConnection()
     fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
 
     epoll_event client_event;
-    client_event.data.fd = client_fd;
+    client_event.data.ptr = new ClientEvent(client_fd);
     client_event.events = EPOLLIN;
 
     if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_ADD, client_fd, &client_event) < 0)
@@ -154,22 +152,22 @@ void Server::AcceptConnection()
         return;
     }
 
-    active_clients_.emplace(client_fd, client_fd);
-    ++total_clients_;
+    ++active_clients_count_;
+    ++total_clients_count_;
 }
 
-void Server::ReadMsg(const int client_fd)
+void Server::ReadMsg(ClientInfo* client)
 {
     constexpr int BUFFSIZE = 1 << 14; // 2**14 bytes
     
     while(true)
     {
         char buff[BUFFSIZE];
-        int received = recv(client_fd, buff, BUFFSIZE-1, 0);
+        int received = recv(client->GetFD(), buff, BUFFSIZE-1, 0);
         
         if(received == 0)
         {
-            CloseConnection(client_fd);
+            CloseConnection(client);
             break;
         }
 
@@ -179,12 +177,12 @@ void Server::ReadMsg(const int client_fd)
                 break;
 
             perror("recv failed");
-            CloseConnection(client_fd);
+            CloseConnection(client);
             break;
         }
 
         buff[received] = '\0';
-        ProccessMsg(client_fd, buff);
+        ProccessMsg(client, buff);
 
         // if(buff[received-1] =='\0' || buff[received-1] == '\n')    
         // {
@@ -200,49 +198,45 @@ void Server::ReadMsg(const int client_fd)
     } 
 }
 
-void Server::ProccessMsg(const int client_fd, const std::string& msg)
+void Server::ProccessMsg(ClientInfo* client, const std::string& msg)
 {
     if(msg == "/stats") 
-        SendStats(client_fd);
+        SendStats(client);
     else if(msg == "/time")
-        SendCurrentTime(client_fd);
+        SendCurrentTime(client);
     else if(msg == "/shutdown")
         Shutdown();
     else
-        SendMsg(client_fd, msg);
+        SendMsg(client, msg);
 }
 
-void Server::SendMsg(const int client_fd, const std::string& msg)
+void Server::SendMsg(ClientInfo* client, const std::string& msg)
 {
-    auto client = GetClientInfo(client_fd);
-    if(!client)
-        return;
-
-    (*client)->AppendSendBuff(msg);
-    std::string msg_to_send = (*client)->GetSendBuff();
+    client->AppendBuff(msg);
+    std::string msg_to_send = client->GetBuff();
     
     int total_sent = 0;
     while(total_sent < msg_to_send.size())
     {
         auto send_pos = msg_to_send.c_str() + total_sent;
 
-        int sent = send(client_fd, send_pos, msg_to_send.size()-total_sent, 0);
+        int sent = send(client->GetFD(), send_pos, msg_to_send.size()-total_sent, 0);
         if(sent < 0)
         {
             if(errno == EAGAIN || errno == EWOULDBLOCK)
             {
-                SaveIntoClientInfoBuff(*(client.value()), msg_to_send.substr(total_sent));
+                SaveIntoClientInfoBuff(client, msg_to_send.substr(total_sent));
                 break;
             }
 
-            CloseConnection(client_fd);
+            CloseConnection(client);
             perror("message sending error");
             break;
         }
 
         if(sent == 0)
         {
-            CloseConnection(client_fd);
+            CloseConnection(client);
             break;
         }
             
@@ -250,56 +244,47 @@ void Server::SendMsg(const int client_fd, const std::string& msg)
     }
 
     if(total_sent == msg_to_send.size())
-        ClearClientInfoBuff(*(client.value()));
+        ClearClientInfoBuff(client);
 }
 
-std::optional<ClientInfo*> Server::GetClientInfo(const int fd)
+void Server::SaveIntoClientInfoBuff(ClientInfo* client, const std::string& msg)
 {
-    auto it = active_clients_.find(fd);
-    if(it == active_clients_.end())
-        return std::nullopt;
+    client->SaveBuff(msg);
 
-    return &(it->second);
-}
-
-void Server::SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg)
-{
-    client.SaveSendBuff(msg);
-
-    if(!client.IsSendBuffEmpty())
+    if(!client->IsBuffEmpty())
     {
         epoll_event client_event;
-        client_event.data.fd = client.GetFD();
+        client_event.data.ptr = new ClientEvent(client);
         client_event.events = EPOLLIN | EPOLLOUT;
 
-        if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_MOD, client.GetFD(), &client_event) < 0)
+        if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_MOD, client->GetFD(), &client_event) < 0)
             perror("failed to add EPOLLOUT into client tracking events");
     }   
 }
 
-void Server::ClearClientInfoBuff(ClientInfo& client)
+void Server::ClearClientInfoBuff(ClientInfo* client)
 {
-    client.ClearSendBuff();
+    client->ClearBuff();
 
     epoll_event client_event;
-    client_event.data.fd = client.GetFD();
+    client_event.data.ptr = new ClientEvent(client);
     client_event.events = EPOLLIN;
 
-    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_MOD, client.GetFD(), &client_event) < 0)
+    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_MOD, client->GetFD(), &client_event) < 0)
         perror("failed to set EPOLLIN to client tracking events");
 }
 
-void Server::SendStats(const int client_fd)
+void Server::SendStats(ClientInfo* client)
 {   
     constexpr int BUFFSIZE = 64;
     char buff[BUFFSIZE];
 
-    std::snprintf(buff, BUFFSIZE, "current active clients: %d", active_clients_.size());
+    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_clients_count_, total_clients_count_);
 
-    SendMsg(client_fd, buff);
+    SendMsg(client, buff);
 }
 
-void Server::SendCurrentTime(const int client_fd)
+void Server::SendCurrentTime(ClientInfo* client)
 {
     const std::string time_format{"2025-11-10 00:00:00"};
 
@@ -311,11 +296,10 @@ void Server::SendCurrentTime(const int client_fd)
 
     std::strftime(buff, BUFFSIZE, "%F %T", std::localtime(&now_time_t));
 
-    SendMsg(client_fd, buff);
+    SendMsg(client, buff);
 }
 
 void Server::Shutdown()
 {
-    active_clients_.clear();
     shutdown_requested_ = true;
 }

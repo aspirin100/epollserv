@@ -15,8 +15,8 @@
 class Server final
 {
 private:
-    std::unordered_map<int, ClientInfo> active_clients_;
-    int total_clients_ = 0; // not unique total clients count
+    int active_clients_count_ = 0;
+    int total_clients_count_ = 0; // not unique clients total  count
 
     sockaddr_in addr_info_;
     FD conn_listener_{-1};
@@ -35,21 +35,20 @@ public:
 
 private:
     void AcceptConnection();
-    void CloseConnection(const int fd);
+    void CloseConnection(ClientInfo* client);
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
-    void ReadMsg(const int client_fd);
-    void ProccessMsg(const int client_fd, const std::string& msg);
+    void ReadMsg(ClientInfo* client);
+    void ProccessMsg(ClientInfo* client, const std::string& msg);
 
-    void SendStats(const int client_fd);
-    void SendCurrentTime(const int client_fd);
+    void SendStats(ClientInfo* client);
+    void SendCurrentTime(ClientInfo* client);
     void Shutdown();
-    void SendMsg(const int client_fd, const std::string& str);
+    void SendMsg(ClientInfo* client, const std::string& msg);
 
-    std::optional<ClientInfo*> GetClientInfo(const int client_fd);
-    void SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg);
-    void ClearClientInfoBuff(ClientInfo& client);
+    void SaveIntoClientInfoBuff(ClientInfo* client, const std::string& msg);
+    void ClearClientInfoBuff(ClientInfo* client);
 };
 
 #endif
