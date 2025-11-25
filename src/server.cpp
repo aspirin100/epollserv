@@ -24,16 +24,19 @@
 #include <errno.h>
 #include <fcntl.h>
 
-Server::Server(const uint16_t& port): addr_info_{new sockaddr_in}
+Server::Server(const uint16_t port): addr_info_{new sockaddr_in}
 {
     addr_info_->sin_port = htons(port);
-    addr_info_->sin_family = AF_UNSPEC;
+    addr_info_->sin_family = AF_INET;
     addr_info_->sin_addr.s_addr = INADDR_ANY;   
 
     if(conn_listener_.fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); conn_listener_.fd < 0)
     {
       perror("failed to open socket");
     } 
+
+    int opt = 1;
+    setsockopt(conn_listener_.fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     if(epoll_fd_.fd = epoll_create1(0); epoll_fd_.fd < 0)
     {
@@ -120,7 +123,7 @@ void Server::HandleEvent(const epoll_event& event)
     }
 }
 
-void Server::CloseConnection(const int& fd)
+void Server::CloseConnection(const int fd)
 {
     // probably excess if epoll automatically don't track closed fd
     if(epoll_ctl(epoll_fd_.fd, EPOLL_CTL_DEL, fd, nullptr) < 0)
@@ -155,7 +158,7 @@ void Server::AcceptConnection()
     ++total_clients_;
 }
 
-void Server::ReadMsg(const int& client_fd)
+void Server::ReadMsg(const int client_fd)
 {
     constexpr int BUFFSIZE = 128;
     while(true)
@@ -184,7 +187,7 @@ void Server::ReadMsg(const int& client_fd)
     }
 }
 
-void Server::ProccessMsg(const int& client_fd, const std::string& msg)
+void Server::ProccessMsg(const int client_fd, const std::string& msg)
 {
     if(msg == "/stats") 
         SendStats(client_fd);
@@ -196,7 +199,7 @@ void Server::ProccessMsg(const int& client_fd, const std::string& msg)
         SendMsg(client_fd, msg);
 }
 
-void Server::SendMsg(const int&  client_fd, const std::string& msg)
+void Server::SendMsg(const int client_fd, const std::string& msg)
 {
     auto client = GetClientInfo(client_fd);
     if(!client)
@@ -237,7 +240,7 @@ void Server::SendMsg(const int&  client_fd, const std::string& msg)
         ClearClientInfoBuff(*(client.value()));
 }
 
-std::optional<ClientInfo*> Server::GetClientInfo(const int& fd)
+std::optional<ClientInfo*> Server::GetClientInfo(const int fd)
 {
     auto it = active_clients_.find(fd);
     if(it == active_clients_.end())
@@ -273,7 +276,7 @@ void Server::ClearClientInfoBuff(ClientInfo& client)
         perror("failed to set EPOLLIN to client tracking events");
 }
 
-void Server::SendStats(const int& client_fd)
+void Server::SendStats(const int client_fd)
 {   
     constexpr int BUFFSIZE = 64;
     char buff[BUFFSIZE];
@@ -283,7 +286,7 @@ void Server::SendStats(const int& client_fd)
     SendMsg(client_fd, buff);
 }
 
-void Server::SendCurrentTime(const int& client_fd)
+void Server::SendCurrentTime(const int client_fd)
 {
     const std::string time_format{"2025-11-10 00:00:00"};
 

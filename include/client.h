@@ -12,7 +12,7 @@ private:
     std::string send_buff_; 
 
 public:
-    explicit ClientInfo(const int& fd): fd_{fd} {}
+    explicit ClientInfo(const int fd): fd_{fd} {}
     void AppendBuff(const std::string& msg) { send_buff_.append(msg); }
     void SaveBuff(const std::string& msg){ send_buff_ = msg; }
     void ClearBuff() { send_buff_.clear(); }

@@ -25,7 +25,7 @@ private:
 
     bool shutdown_requested_ = false;
 public:
-    Server(const uint16_t& port);
+    Server(const uint16_t port);
 
     Server(const Server&) = delete;
     Server(const Server&&) = delete;
@@ -36,19 +36,19 @@ public:
 
 private:
     void AcceptConnection();
-    void CloseConnection(const int& fd);
+    void CloseConnection(const int fd);
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
-    void ReadMsg(const int& client_fd);
-    void ProccessMsg(const int& client_fd, const std::string& msg);
+    void ReadMsg(const int client_fd);
+    void ProccessMsg(const int client_fd, const std::string& msg);
 
-    void SendStats(const int& client_fd);
-    void SendCurrentTime(const int& client_fd);
+    void SendStats(const int client_fd);
+    void SendCurrentTime(const int client_fd);
     void Shutdown();
-    void SendMsg(const int& client_fd, const std::string& str);
+    void SendMsg(const int client_fd, const std::string& str);
 
-    std::optional<ClientInfo*> GetClientInfo(const int& client_fd);
+    std::optional<ClientInfo*> GetClientInfo(const int client_fd);
     void SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg);
     void ClearClientInfoBuff(ClientInfo& client);
 };
