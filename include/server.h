@@ -25,7 +25,7 @@ private:
 
     bool shutdown_requested_ = false;
 public:
-    Server(const uint16_t port);
+    /*explicit*/Server(const uint16_t port);
 
     Server(const Server&) = delete;
     Server(const Server&&) = delete;
