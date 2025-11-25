@@ -26,9 +26,9 @@
 
 Server::Server(const uint16_t port): addr_info_{new sockaddr_in}
 {
-    addr_info_->sin_port = htons(port);
-    addr_info_->sin_family = AF_INET;
-    addr_info_->sin_addr.s_addr = INADDR_ANY;   
+    addr_info_.sin_port = htons(port);
+    addr_info_.sin_family = AF_INET;
+    addr_info_.sin_addr.s_addr = INADDR_ANY;   
 
     if(conn_listener_.fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); conn_listener_.fd < 0)
     {

@@ -5,7 +5,6 @@
 #include "client.h"
 
 #include <cstdint>
-#include <memory>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -19,7 +18,7 @@ private:
     std::unordered_map<int, ClientInfo> active_clients_;
     int total_clients_ = 0; // not unique total clients count
 
-    std::unique_ptr<sockaddr_in> addr_info_ = nullptr;
+    sockaddr_in addr_info_;
     FD conn_listener_{-1};
     FD epoll_fd_{-1};
 
