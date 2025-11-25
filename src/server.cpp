@@ -112,7 +112,7 @@ void Server::HandleEvent(const epoll_event& event)
     
     if(event.events & EPOLLOUT)
     {
-        auto client = GetClient(event.data.fd);
+        auto client = GetClientInfo(event.data.fd);
         if (!client)
             return;
 
@@ -198,7 +198,7 @@ void Server::ProccessMsg(const int& client_fd, const std::string& msg)
 
 void Server::SendMsg(const int&  client_fd, const std::string& msg)
 {
-    auto client = GetClient(client_fd);
+    auto client = GetClientInfo(client_fd);
     if(!client)
         return;
 
@@ -215,7 +215,7 @@ void Server::SendMsg(const int&  client_fd, const std::string& msg)
         {
             if(errno == EAGAIN || errno == EWOULDBLOCK)
             {
-                SaveIntoClientBuff(*(client.value()), msg_to_send.substr(total_sent));
+                SaveIntoClientInfoBuff(*(client.value()), msg_to_send.substr(total_sent));
                 break;
             }
 
@@ -234,10 +234,10 @@ void Server::SendMsg(const int&  client_fd, const std::string& msg)
     }
 
     if(total_sent == msg_to_send.size())
-        ClearClientBuff(*(client.value()));
+        ClearClientInfoBuff(*(client.value()));
 }
 
-std::optional<Client*> Server::GetClient(const int& fd)
+std::optional<ClientInfo*> Server::GetClientInfo(const int& fd)
 {
     auto it = active_clients_.find(fd);
     if(it == active_clients_.end())
@@ -246,7 +246,7 @@ std::optional<Client*> Server::GetClient(const int& fd)
     return &(it->second);
 }
 
-void Server::SaveIntoClientBuff(Client& client, const std::string& msg)
+void Server::SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg)
 {
     client.SaveBuff(msg);
 
@@ -261,7 +261,7 @@ void Server::SaveIntoClientBuff(Client& client, const std::string& msg)
     }   
 }
 
-void Server::ClearClientBuff(Client& client)
+void Server::ClearClientInfoBuff(ClientInfo& client)
 {
     client.ClearBuff();
 

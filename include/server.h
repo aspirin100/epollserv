@@ -16,7 +16,7 @@
 class Server final
 {
 private:
-    std::unordered_map<int, Client> active_clients_;
+    std::unordered_map<int, ClientInfo> active_clients_;
     int total_clients_ = 0; // not unique total clients count
 
     std::unique_ptr<sockaddr_in> addr_info_ = nullptr;
@@ -48,9 +48,9 @@ private:
     void Shutdown();
     void SendMsg(const int& client_fd, const std::string& str);
 
-    std::optional<Client*> GetClient(const int& client_fd);
-    void SaveIntoClientBuff(Client& client, const std::string& msg);
-    void ClearClientBuff(Client& client);
+    std::optional<ClientInfo*> GetClientInfo(const int& client_fd);
+    void SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg);
+    void ClearClientInfoBuff(ClientInfo& client);
 };
 
 #endif
