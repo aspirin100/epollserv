@@ -1,14 +1,12 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#include "fd.h"
-#include "client.h"
+#include <string>
+#include <queue>
+#include <unordered_map>
+#include <optional>
 
 #include <cstdint>
-#include <memory>
-#include <optional>
-#include <string>
-#include <unordered_map>
 #include <sys/types.h>
 #include <sys/epoll.h>
 #include <netinet/in.h>
@@ -16,16 +14,41 @@
 class Server final
 {
 private:
-    std::unordered_map<int, Client> active_clients_;
-    int total_clients_ = 0; // not unique total clients count
+    class ClientInfo
+    {
+    public:
+        int fd;
 
-    std::unique_ptr<sockaddr_in> addr_info_ = nullptr;
-    FD conn_listener_{-1};
-    FD epoll_fd_{-1};
+        std::string to_read_buff;
+        std::string to_write_buff;
+
+        std::queue<std::string> msg_queue;
+
+        explicit ClientInfo(const int fdesc)
+            : fd(fdesc) {}
+
+        std::optional<std::string> GetMsgFromQueue();
+
+        ClientInfo(const ClientInfo& c) = delete;
+        ClientInfo(ClientInfo&& c) = delete;
+        ClientInfo& operator=(const ClientInfo& rhs) = delete;
+        ClientInfo& operator=(ClientInfo&& rhs) = delete;
+        
+        ~ClientInfo();
+    private:
+        void FillMessagesQueue();
+    };
+
+    std::unordered_map<int, ClientInfo> active_clients_;
+    int total_clients_count_ = 0; // not unique clients total count
+
+    sockaddr_in addr_info_;
+    int conn_listener_ = -1;
+    int epoll_fd_ = -1;
 
     bool shutdown_requested_ = false;
 public:
-    Server(const uint16_t& port);
+    explicit Server(const uint16_t port);
 
     Server(const Server&) = delete;
     Server(const Server&&) = delete;
@@ -33,24 +56,28 @@ public:
     Server& operator=(const Server&&) = delete;
     
     void Start();
+    void Shutdown();
+
+    ~Server();
 
 private:
     void AcceptConnection();
-    void CloseConnection(const int& fd);
+    void CloseConnection(const int client_fd);
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
-    void ReadMsg(const int& client_fd);
-    void ProccessMsg(const int& client_fd, const std::string& msg);
 
-    void SendStats(const int& client_fd);
-    void SendCurrentTime(const int& client_fd);
-    void Shutdown();
-    void SendMsg(const int& client_fd, const std::string& str);
+    void ReadMsg(ClientInfo& client);
+    bool SendMsg(ClientInfo& client, const std::string& msg);
+    std::optional<std::string> ProccessMsg(const std::string& msg);
 
-    std::optional<Client*> GetClient(const int& client_fd);
-    void SaveIntoClientBuff(Client& client, const std::string& msg);
-    void ClearClientBuff(Client& client);
+    std::string GetStats();
+    std::string GetCurrentTimeStr();
+
+    void SaveIntoClientWriteBuff(ClientInfo& client, const std::string& msg);
+    void ClearClientWriteBuff(ClientInfo& client);
+
+    void ModifyClientEvent(const int fd, int flag);
 };
 
 #endif

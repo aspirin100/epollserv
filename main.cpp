@@ -1,13 +1,16 @@
 #include <iostream>
-#include <memory>
+#include <cstdint>
 
 #include "server.h"
 
 int main()
 {
-    std::unique_ptr<Server> server(new Server(8888));
-    server->Start();
+    uint16_t port;
+    std::cout << "enter server port: " << std::endl;
+    std::cin >> port;
 
-    std::cout << "correctly shutdowned\n";
+    Server server(port);
+    server.Start();
+
     return 0;
 }
