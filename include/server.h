@@ -1,7 +1,6 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#include "fd.h"
 #include "client.h"
 
 #include <cstdint>
@@ -15,12 +14,14 @@
 class Server final
 {
 private:
-    int active_clients_count_ = 0;
-    int total_clients_count_ = 0; // not unique clients total  count
+    std::unordered_map<int, std::unique_ptr<ClientInfo>> active_clients_;
+
+    int active_clients_count_ = 0; // TODO: remove
+    int total_clients_count_ = 0; // not unique clients total count
 
     sockaddr_in addr_info_;
-    FD conn_listener_{-1};
-    FD epoll_fd_{-1};
+    int conn_listener_ = 0;
+    int epoll_fd_ = 0;
 
     bool shutdown_requested_ = false;
 public:
@@ -32,7 +33,9 @@ public:
     Server& operator=(const Server&&) = delete;
     
     void Start();
+    void Shutdown();
 
+    ~Server();
 private:
     void AcceptConnection();
     void CloseConnection(ClientInfo* client);
@@ -44,7 +47,6 @@ private:
 
     void SendStats(ClientInfo* client);
     void SendCurrentTime(ClientInfo* client);
-    void Shutdown();
     void SendMsg(ClientInfo* client, const std::string& msg);
 
     void SaveIntoClientInfoBuff(ClientInfo* client, const std::string& msg);

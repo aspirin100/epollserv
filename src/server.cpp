@@ -31,28 +31,34 @@ Server::Server(const uint16_t port): addr_info_{sockaddr_in{}}
     addr_info_.sin_family = AF_INET;
     addr_info_.sin_addr.s_addr = INADDR_ANY;   
 
-    if(conn_listener_.SetFD(socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0)); conn_listener_.GetFD() < 0)
+    if(conn_listener_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); conn_listener_ < 0)
     {
       perror("failed to open socket");
       return;
     } 
 
     int opt = 1;
-    setsockopt(conn_listener_.GetFD(), SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(conn_listener_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
-    if(epoll_fd_.SetFD(epoll_create1(0)); epoll_fd_.GetFD() < 0)
+    if(epoll_fd_ = epoll_create1(0); epoll_fd_ < 0)
       perror("failed to open epoll sock");
+}
+
+Server::~Server()
+{
+    if(conn_listener_) close(conn_listener_);
+    if(conn_listener_) close(conn_listener_);
 }
 
 void Server::Start()
 {
-    if(bind(conn_listener_.GetFD(), reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
+    if(bind(conn_listener_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
     {
         perror("failed to bind the socket");
         return;
     } 
 
-    if(listen(conn_listener_.GetFD(), SOMAXCONN) < 0)
+    if(listen(conn_listener_, SOMAXCONN) < 0)
     {
         perror("error on listen()");
         return;
@@ -70,7 +76,7 @@ void Server::EventLoop()
     constexpr int MAX_EVENTS = 64;
     epoll_event catched_events[MAX_EVENTS];
 
-    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_ADD, conn_listener_.GetFD(), &event) < 0)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, conn_listener_, &event) < 0)
     {
         perror("failed to add listener socket into tracking events list");
         return;
@@ -78,7 +84,7 @@ void Server::EventLoop()
 
     while(!shutdown_requested_)
     {
-        int n = epoll_wait(epoll_fd_.GetFD(), catched_events, MAX_EVENTS, -1);
+        int n = epoll_wait(epoll_fd_, catched_events, MAX_EVENTS, -1);
 
         if(n < 0)
         {
@@ -123,7 +129,7 @@ void Server::HandleEvent(const epoll_event& event)
 void Server::CloseConnection(ClientInfo* client)
 {
     // probably excess if epoll automatically don't track closed fd
-    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_DEL, client->GetFD(), nullptr) < 0)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client->GetFD(), nullptr) < 0)
         perror("failed to remove client from tracked clients");
 
     delete client;
@@ -132,7 +138,7 @@ void Server::CloseConnection(ClientInfo* client)
 
 void Server::AcceptConnection()
 {
-    int client_fd = accept(conn_listener_.GetFD(), nullptr, nullptr);
+    int client_fd = accept(conn_listener_, nullptr, nullptr);
     if(client_fd < 0)
     {
         perror("accept fail");
@@ -142,11 +148,13 @@ void Server::AcceptConnection()
     int flags = fcntl(client_fd, F_GETFL, 0);
     fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
 
+    active_clients_[client_fd] = std::make_unique<ClientEvent>(client_fd);
+
     epoll_event client_event;
     client_event.data.ptr = new ClientEvent(client_fd);
     client_event.events = EPOLLIN;
 
-    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_ADD, client_fd, &client_event) < 0)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &client_event) < 0)
     {
         perror("failed to add client socket into tracking events list");
         return;
@@ -257,7 +265,7 @@ void Server::SaveIntoClientInfoBuff(ClientInfo* client, const std::string& msg)
         client_event.data.ptr = new ClientEvent(client);
         client_event.events = EPOLLIN | EPOLLOUT;
 
-        if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_MOD, client->GetFD(), &client_event) < 0)
+        if(epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, client->GetFD(), &client_event) < 0)
             perror("failed to add EPOLLOUT into client tracking events");
     }   
 }
@@ -270,7 +278,7 @@ void Server::ClearClientInfoBuff(ClientInfo* client)
     client_event.data.ptr = new ClientEvent(client);
     client_event.events = EPOLLIN;
 
-    if(epoll_ctl(epoll_fd_.GetFD(), EPOLL_CTL_MOD, client->GetFD(), &client_event) < 0)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, client->GetFD(), &client_event) < 0)
         perror("failed to set EPOLLIN to client tracking events");
 }
 
@@ -279,7 +287,7 @@ void Server::SendStats(ClientInfo* client)
     constexpr int BUFFSIZE = 64;
     char buff[BUFFSIZE];
 
-    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_clients_count_, total_clients_count_);
+    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_clients_.size(), total_clients_count_);
 
     SendMsg(client, buff);
 }

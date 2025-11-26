@@ -4,15 +4,17 @@
 #include "fd.h"
 
 #include <string>
+#include <unistd.h>
 
 class ClientInfo
 {
 private:
-    FD fd_;
+    int fd_;
     std::string buff_;
 
 public:
-    explicit ClientInfo(const int fd): fd_{fd} {}
+    explicit ClientInfo(const int fd)
+        : fd_(fd) {}
     
     void AppendBuff(const std::string& msg) { buff_.append(msg); }
     void SaveBuff(const std::string& msg){ buff_ = msg; }
@@ -20,7 +22,9 @@ public:
     bool IsBuffEmpty() { return buff_.empty(); }
     std::string GetBuff(){ return buff_; }
 
-    int GetFD() { return fd_.GetFD(); }
+    int GetFD() { return fd_; }
+
+    ~ClientInfo(){ if(fd_) close(fd_);}
 };
 
 #endif
