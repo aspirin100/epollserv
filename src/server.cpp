@@ -47,7 +47,7 @@ Server::Server(const uint16_t port): addr_info_{sockaddr_in{}}
 Server::~Server()
 {
     if(conn_listener_) close(conn_listener_);
-    if(conn_listener_) close(conn_listener_);
+    if(epoll_fd_) close(epoll_fd_);
 }
 
 void Server::Start()
@@ -310,4 +310,18 @@ void Server::SendCurrentTime(ClientInfo* client)
 void Server::Shutdown()
 {
     shutdown_requested_ = true;
+
+    if(close(conn_listener_) < 0) perror("listener socket close fail");
+    conn_listener_ = 0;
+
+    for(const auto &client : active_clients_)
+    {
+        if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client.second.GetFD(), nullptr) < 0)
+        perror("failed to remove client from tracked clients");
+    
+        active_clients_.erase(client.second);
+    }
+
+    if(close(epoll_fd_) < 0) perror("epoll fd close fail");
+    epoll_fd_ = 0;
 }
