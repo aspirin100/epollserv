@@ -1,11 +1,12 @@
 #ifndef SERVER_H
 #define SERVER_H
 
-#include "client.h"
+#include <string>
+#include <queue>
+#include <unordered_map>
+#include <optional>
 
 #include <cstdint>
-#include <string>
-#include <unordered_map>
 #include <sys/types.h>
 #include <sys/epoll.h>
 #include <netinet/in.h>
@@ -13,14 +14,37 @@
 class Server final
 {
 private:
-    std::unordered_map<int, ClientInfo> active_clients_;
+    class ClientInfo
+    {
+    public:
+        int fd;
 
-    int active_clients_count_ = 0; // TODO: remove
+        std::string to_read_buff;
+        std::string to_write_buff;
+
+        std::queue<std::string> msg_queue;
+
+        explicit ClientInfo(const int fdesc)
+            : fd(fdesc) {}
+
+        std::optional<std::string> GetMsgFromQueue();
+
+        ClientInfo(const ClientInfo& c) = delete;
+        ClientInfo(ClientInfo&& c) = delete;
+        ClientInfo& operator=(const ClientInfo& rhs) = delete;
+        ClientInfo& operator=(ClientInfo&& rhs) = delete;
+        
+        ~ClientInfo();
+    private:
+        void FillMessagesQueue();
+    };
+
+    std::unordered_map<int, ClientInfo> active_clients_;
     int total_clients_count_ = 0; // not unique clients total count
 
     sockaddr_in addr_info_;
-    int conn_listener_ = 0;
-    int epoll_fd_ = 0;
+    int conn_listener_ = -1;
+    int epoll_fd_ = -1;
 
     bool shutdown_requested_ = false;
 public:
@@ -35,6 +59,7 @@ public:
     void Shutdown();
 
     ~Server();
+
 private:
     void AcceptConnection();
     void CloseConnection(const ClientInfo& client);
@@ -43,14 +68,14 @@ private:
     void HandleEvent(const epoll_event& event);
 
     void ReadMsg(ClientInfo& client);
-    void SendMsg(ClientInfo& client);
-    std::string ProccessMsg(const std::string& msg);
+    void SendMsg(ClientInfo& client, const std::string& msg);
+    std::optional<std::string> ProccessMsg(const std::string& msg);
 
     std::string GetStats();
     std::string GetCurrentTimeStr();
 
-    void SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg);
-    void ClearClientInfoBuff(ClientInfo& client);
+    void SaveIntoClientWriteBuff(ClientInfo& client, const std::string& msg);
+    void ClearClientWriteBuff(ClientInfo& client);
 };
 
 #endif
