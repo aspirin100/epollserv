@@ -4,7 +4,6 @@
 #include "client.h"
 
 #include <cstdint>
-#include <optional>
 #include <string>
 #include <unordered_map>
 #include <sys/types.h>
@@ -14,7 +13,7 @@
 class Server final
 {
 private:
-    std::unordered_map<int, std::unique_ptr<ClientInfo>> active_clients_;
+    std::unordered_map<int, ClientInfo> active_clients_;
 
     int active_clients_count_ = 0; // TODO: remove
     int total_clients_count_ = 0; // not unique clients total count
@@ -38,19 +37,20 @@ public:
     ~Server();
 private:
     void AcceptConnection();
-    void CloseConnection(ClientInfo* client);
+    void CloseConnection(const ClientInfo& client);
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
-    void ReadMsg(ClientInfo* client);
-    void ProccessMsg(ClientInfo* client, const std::string& msg);
 
-    void SendStats(ClientInfo* client);
-    void SendCurrentTime(ClientInfo* client);
-    void SendMsg(ClientInfo* client, const std::string& msg);
+    void ReadMsg(ClientInfo& client);
+    void SendMsg(ClientInfo& client);
+    std::string ProccessMsg(const std::string& msg);
 
-    void SaveIntoClientInfoBuff(ClientInfo* client, const std::string& msg);
-    void ClearClientInfoBuff(ClientInfo* client);
+    std::string GetStats();
+    std::string GetCurrentTimeStr();
+
+    void SaveIntoClientInfoBuff(ClientInfo& client, const std::string& msg);
+    void ClearClientInfoBuff(ClientInfo& client);
 };
 
 #endif
