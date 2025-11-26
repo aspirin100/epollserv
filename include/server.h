@@ -62,13 +62,13 @@ public:
 
 private:
     void AcceptConnection();
-    void CloseConnection(const ClientInfo& client);
+    void CloseConnection(const int client_fd);
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
 
     void ReadMsg(ClientInfo& client);
-    void SendMsg(ClientInfo& client, const std::string& msg);
+    bool SendMsg(ClientInfo& client, const std::string& msg);
     std::optional<std::string> ProccessMsg(const std::string& msg);
 
     std::string GetStats();
@@ -76,6 +76,8 @@ private:
 
     void SaveIntoClientWriteBuff(ClientInfo& client, const std::string& msg);
     void ClearClientWriteBuff(ClientInfo& client);
+
+    void ModifyClientEvent(const int fd, int flag);
 };
 
 #endif

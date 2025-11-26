@@ -99,6 +99,8 @@ void Server::EventLoop()
 
 void Server::HandleEvent(const epoll_event& event)
 {   
+    if(shutdown_requested_) return;
+
     if(event.data.fd == conn_listener_ && event.events & EPOLLIN)
     {
         AcceptConnection();
@@ -111,24 +113,24 @@ void Server::HandleEvent(const epoll_event& event)
     if(event.events & EPOLLERR || event.events & EPOLLHUP)
     {
         std::cout << "epoll error on socket: " << event.data.fd << '\n';
-        CloseConnection(client->second);
+        CloseConnection(client->second.fd);
         return;
     }
 
-    else if(event.events & EPOLLIN)
+    if(event.events & EPOLLIN)
         ReadMsg(client->second);
     
-    else if(event.events & EPOLLOUT)
+    if(event.events & EPOLLOUT)
         SendMsg(client->second, client->second.to_write_buff);
 }
 
-void Server::CloseConnection(const ClientInfo& client)
+void Server::CloseConnection(const int client_fd)
 {
     // probably excess if epoll automatically don't track closed fd
-    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client.fd, nullptr) < 0)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client_fd, nullptr) < 0)
         perror("failed to remove client from tracked clients");
 
-    active_clients_.erase(client.fd);
+    active_clients_.erase(client_fd);
 }
 
 void Server::AcceptConnection()
@@ -142,19 +144,18 @@ void Server::AcceptConnection()
 
     int flags = fcntl(client_fd, F_GETFL, 0);
     fcntl(client_fd, F_SETFL, flags | O_NONBLOCK);
-
-    active_clients_.emplace(client_fd, client_fd);
-
+    
     epoll_event client_event;
     client_event.data.fd = client_fd;
-    client_event.events = EPOLLIN | EPOLLOUT;
-
+    client_event.events = EPOLLIN;
+    
     if(epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &client_event) < 0)
     {
         perror("failed to add client socket into tracking events list");
         return;
     }
-
+    
+    active_clients_.emplace(client_fd, client_fd);
     ++total_clients_count_;
 }
 
@@ -169,7 +170,7 @@ void Server::ReadMsg(ClientInfo& client)
         
         if(received == 0)
         {
-            CloseConnection(client);
+            CloseConnection(client.fd);
             break;
         }
 
@@ -179,11 +180,12 @@ void Server::ReadMsg(ClientInfo& client)
                 break;
 
             perror("recv failed");
-            CloseConnection(client);
+            CloseConnection(client.fd);
             break;
         }
 
-        client.to_read_buff.append(std::string(buff, received));
+        buff[received] = '\0';
+        client.to_read_buff = std::string(buff, received);
 
         while(true)
         {
@@ -191,9 +193,9 @@ void Server::ReadMsg(ClientInfo& client)
             if(!msg) break;
         
             auto proccessed_msg = ProccessMsg(msg.value());
-            if(!proccessed_msg) break;
+            if(!proccessed_msg) continue;
 
-            SendMsg(client, proccessed_msg.value());
+            if (!SendMsg(client, proccessed_msg.value())) break;
         }
     } 
 }
@@ -203,7 +205,7 @@ std::optional<std::string> Server::ProccessMsg(const std::string& cmd)
     if(cmd == "/shutdown")
     {
         Shutdown();
-        return {};
+        return std::nullopt;
     }
 
     if(cmd == "/stats") 
@@ -214,7 +216,7 @@ std::optional<std::string> Server::ProccessMsg(const std::string& cmd)
         return cmd;
 }
 
-void Server::SendMsg(ClientInfo& client, const std::string& msg)
+bool Server::SendMsg(ClientInfo& client, const std::string& msg)
 {
     int total_sent = 0;
     while(total_sent < msg.size())
@@ -226,54 +228,43 @@ void Server::SendMsg(ClientInfo& client, const std::string& msg)
         {
             if(errno == EAGAIN || errno == EWOULDBLOCK)
             {
-                SaveIntoClientWriteBuff(client, msg.substr(total_sent));
-                break;
+                client.to_write_buff = msg.substr(total_sent);
+                ModifyClientEvent(client.fd, EPOLLIN | EPOLLOUT);
+
+                return false;
             }
 
-            CloseConnection(client);
+            CloseConnection(client.fd);
             perror("message sending error");
             break;
         }
 
         if(sent == 0)
         {
-            CloseConnection(client);
-            break;
+            CloseConnection(client.fd);
+            return false;
         }
             
         total_sent += sent;
     }
 
-    if(total_sent == client.to_write_buff.size())
-        ClearClientWriteBuff(client);
-    
-}
-
-void Server::SaveIntoClientWriteBuff(ClientInfo& client, const std::string& msg)
-{
-    client.to_write_buff = msg;
-
-    if(!client.to_write_buff.empty())
+    if(total_sent == msg.size())
     {
-        epoll_event client_event;
-        client_event.data.fd = client.fd;
-        client_event.events = EPOLLIN | EPOLLOUT;
+        client.to_write_buff.clear();
+        ModifyClientEvent(client.fd, EPOLLIN);
+    }
 
-        if(epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, client.fd, &client_event) < 0)
-            perror("failed to add EPOLLOUT into client tracking events");
-    }   
+    return true;
 }
 
-void Server::ClearClientWriteBuff(ClientInfo& client)
+void Server::ModifyClientEvent(const int fd, int flag)
 {
-    client.to_write_buff.clear();
-
     epoll_event client_event;
-    client_event.data.fd = client.fd;
-    client_event.events = EPOLLIN;
+    client_event.data.fd = fd;
+    client_event.events = flag;
 
-    if(epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, client.fd, &client_event) < 0)
-        perror("failed to set EPOLLIN to client tracking events");
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &client_event) < 0)
+        perror("failed to modify client event");
 }
 
 std::string Server::GetStats()
