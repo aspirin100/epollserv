@@ -14,6 +14,7 @@
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/timerfd.h>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <netinet/in.h>
@@ -39,6 +40,12 @@ Server::Server(const uint16_t port): addr_info_{sockaddr_in{}}
       return;
     } 
 
+    if(timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK); timer_fd_ < 0)
+    {
+        perror("failed to create timerfd instance");
+        return;
+    }
+
     int opt = 1;
 
     setsockopt(tcp_listener_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
@@ -52,11 +59,13 @@ Server::~Server()
 {
     if(tcp_listener_fd_) close(tcp_listener_fd_);
     if(udp_listener_fd_) close(udp_listener_fd_);
+    if(timer_fd_) close(timer_fd_);
     if(epoll_fd_) close(epoll_fd_);
 }
 
 void Server::Start()
 {
+    // tcp socket 
     if(bind(tcp_listener_fd_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
     {
         perror("failed to bind tcp socket");
@@ -69,18 +78,28 @@ void Server::Start()
         return;
     }
 
+    // udp socket
     if(bind(udp_listener_fd_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
     {
         perror("failed to bind udp socket");
         return;
     } 
 
+    // timer setup
+    if(!SetupUdpClientsClearTimer())
+        return;
+
+    // adding tracking events on sockets
     if(!AddTrackingEvents(tcp_listener_fd_, EPOLLIN))
         return;
         
     if(!AddTrackingEvents(udp_listener_fd_, EPOLLIN | EPOLLERR))
         return;
    
+    if(!AddTrackingEvents(timer_fd_, EPOLLIN))
+        return;
+
+
     EventLoop();
 }
 
@@ -92,7 +111,7 @@ bool Server::AddTrackingEvents(const int fd, const int events)
 
     if(epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &event) < 0)
     {
-        perror("failed to add listener socket into tracking events list");
+        perror("EPOLL_CTL_ADD error");
         return false;
     }
 
@@ -137,8 +156,8 @@ void Server::HandleEvent(const epoll_event& event)
         return;   
     }
 
-    auto client = active_clients_.find(event.data.fd);
-    if(client == active_clients_.end()) return;
+    auto client = active_tcp_clients_.find(event.data.fd);
+    if(client == active_tcp_clients_.end()) return;
 
     if(event.events & EPOLLERR || event.events & EPOLLHUP)
     {
@@ -154,74 +173,13 @@ void Server::HandleEvent(const epoll_event& event)
         SendMsg(client->second, client->second.to_write_buff);
 }
 
-void Server::HandleUdpEvent(const epoll_event& event)
-{
-    if(event.events & EPOLLERR)
-    {
-        int err = 0;
-        socklen_t len = sizeof(err);
-
-        if(getsockopt(udp_listener_fd_, SOL_SOCKET, SO_ERROR, &err, &len) < 0) return;
-        
-        if(err > 0) std::cout << "udp event error: " << strerror(err) << std::endl;
-        else std::cout << "udp event error\n";
-
-        return;
-    }
-    
-    if(event.events & EPOLLIN)
-        UdpReadWrite();
-}
-
-void Server::UdpReadWrite()
-{
-    constexpr int BUFFSIZE = 1<<16; // 2**16 bytes
-    char buff[BUFFSIZE];
-
-    sockaddr_in client{};
-    socklen_t socklen = sizeof(client);
-
-    while(true)
-    {
-        int received = recvfrom(udp_listener_fd_, buff, BUFFSIZE-1, 0, reinterpret_cast<sockaddr*>(&client), &socklen);
-
-        if(received < 0)
-        {
-            if(errno == EAGAIN || errno == EWOULDBLOCK)
-                break;
-
-            perror("recvfrom error");
-            break;
-        }
-
-        buff[received] = '\0';
-        auto proccessed_msg = ProccessUdpMsg(std::string(buff, received));
-
-        if(!proccessed_msg) continue;
-
-        int sent = sendto(udp_listener_fd_, proccessed_msg.value().c_str(), proccessed_msg.value().size(), 0, reinterpret_cast<sockaddr*>(&client), socklen);
-        if(sent < 0)
-            perror("sendto err");
-    }
-}
-
-std::optional<std::string> Server::ProccessUdpMsg(const std::string& msg)
-{
-    std::string formatted = msg;
-
-    while(!formatted.empty() && formatted.back() == '\n' || formatted.back() == '\r')
-        formatted.pop_back();
-
-    return ProccessMsg(formatted);
-}
-
 void Server::CloseConnection(const int client_fd)
 {
     // probably excess if epoll automatically don't track closed fd
     if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client_fd, nullptr) < 0)
         perror("failed to remove client from tracked clients");
 
-    active_clients_.erase(client_fd);
+    active_tcp_clients_.erase(client_fd);
 }
 
 void Server::AcceptConnection()
@@ -246,7 +204,7 @@ void Server::AcceptConnection()
         return;
     }
     
-    active_clients_.emplace(client_fd, client_fd);
+    active_tcp_clients_.emplace(client_fd, client_fd);
     ++total_clients_count_;
 }
 
@@ -369,7 +327,7 @@ std::string Server::GetStats()
     constexpr int BUFFSIZE = 64;
     char buff[BUFFSIZE];
 
-    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_clients_.size(), total_clients_count_);
+    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_tcp_clients_.size(), total_clients_count_);
 
     return buff;
 }
@@ -399,17 +357,23 @@ void Server::Shutdown()
     if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, udp_listener_fd_, nullptr) < 0)
         perror("failed to remove udp listener from tracked event list");
 
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, timer_fd_, nullptr) < 0)
+        perror("failed to remove timer from tracked event list");
+
     if(close(tcp_listener_fd_) < 0) perror("tcp listener socket close fail");
     tcp_listener_fd_ = -1;
 
     if(close(udp_listener_fd_) < 0) perror("udp listener socket close fail");
     udp_listener_fd_ = -1;
 
-    for(const auto &[fd, client] : active_clients_)
+    if(close(timer_fd_) < 0) perror("timer close fail");
+    timer_fd_ = -1;
+
+    for(const auto &[fd, client] : active_tcp_clients_)
         if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr) < 0)
             perror("failed to remove client from tracked clients");
     
-    active_clients_.clear();
+    active_tcp_clients_.clear();
     
     if(close(epoll_fd_) < 0) perror("epoll fd close fail");
     epoll_fd_ = -1;
