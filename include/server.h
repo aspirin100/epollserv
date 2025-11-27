@@ -4,6 +4,7 @@
 #include <string>
 #include <queue>
 #include <unordered_map>
+#include <unordered_set>
 #include <optional>
 
 #include <cstdint>
@@ -39,11 +40,16 @@ private:
         void FillMessagesQueue();
     };
 
-    std::unordered_map<int, ClientInfo> active_clients_;
+    std::unordered_map<int, ClientInfo> active_tcp_clients_;
+    std::unordered_set<std::string> active_udp_clients_; // clears every 5 minute
+
     int total_clients_count_ = 0; // not unique clients total count
 
     sockaddr_in addr_info_;
-    int conn_listener_ = -1;
+
+    int tcp_listener_fd_ = -1;
+    int udp_listener_fd_ = -1;
+    int timer_fd_ = -1;
     int epoll_fd_ = -1;
 
     bool shutdown_requested_ = false;
@@ -66,18 +72,26 @@ private:
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
+    void HandleUdpEvent(const epoll_event& event);
+    void HandleTimerEvent(const epoll_event& event);
 
     void ReadMsg(ClientInfo& client);
     bool SendMsg(ClientInfo& client, const std::string& msg);
+    void UdpReadWrite();
+
     std::optional<std::string> ProccessMsg(const std::string& msg);
+    std::optional<std::string> ProccessUdpMsg(const std::string& msg);
 
     std::string GetStats();
     std::string GetCurrentTimeStr();
 
     void SaveIntoClientWriteBuff(ClientInfo& client, const std::string& msg);
     void ClearClientWriteBuff(ClientInfo& client);
+    void AddActiveUdpClient(const std::string& ip, const uint16_t port);
 
-    void ModifyClientEvent(const int fd, int flag);
+    void ModifyClientEvent(const int fd, const int events);
+    bool AddTrackingEvents(const int fd, const int events);
+    bool SetupUdpClientsClearTimer();
 };
 
 #endif

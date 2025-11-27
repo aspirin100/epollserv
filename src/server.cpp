@@ -1,21 +1,20 @@
 #include "server.h"
 
 #include <iostream>
-// for uint16_t-like types
-#include <cstdint>
-
-// for time outputting
 #include <chrono>
-#include <ctime>
 
 #include <optional>
 #include <memory>
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <cstdint>
+#include <ctime>
 
 #include <sys/types.h>
 #include <sys/socket.h>
+#include <sys/timerfd.h>
 #include <sys/epoll.h>
 #include <unistd.h>
 #include <netinet/in.h>
@@ -29,14 +28,28 @@ Server::Server(const uint16_t port): addr_info_{sockaddr_in{}}
     addr_info_.sin_family = AF_INET;
     addr_info_.sin_addr.s_addr = INADDR_ANY;   
 
-    if(conn_listener_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); conn_listener_ < 0)
+    if(tcp_listener_fd_ = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, 0); tcp_listener_fd_ < 0)
     {
-      perror("failed to open socket");
+      perror("failed to open tcp socket");
       return;
     } 
 
+    if(udp_listener_fd_ = socket(AF_INET, SOCK_DGRAM | SOCK_NONBLOCK, 0); udp_listener_fd_ < 0)
+    {
+      perror("failed to open udp socket");
+      return;
+    } 
+
+    if(timer_fd_ = timerfd_create(CLOCK_MONOTONIC, TFD_NONBLOCK); timer_fd_ < 0)
+    {
+        perror("failed to create timerfd instance");
+        return;
+    }
+
     int opt = 1;
-    setsockopt(conn_listener_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+
+    setsockopt(tcp_listener_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
+    setsockopt(udp_listener_fd_, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt));
 
     if(epoll_fd_ = epoll_create1(0); epoll_fd_ < 0)
       perror("failed to open epoll sock");
@@ -44,41 +57,71 @@ Server::Server(const uint16_t port): addr_info_{sockaddr_in{}}
 
 Server::~Server()
 {
-    if(conn_listener_) close(conn_listener_);
+    if(tcp_listener_fd_) close(tcp_listener_fd_);
+    if(udp_listener_fd_) close(udp_listener_fd_);
+    if(timer_fd_) close(timer_fd_);
     if(epoll_fd_) close(epoll_fd_);
 }
 
 void Server::Start()
 {
-    if(bind(conn_listener_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
+    // tcp socket 
+    if(bind(tcp_listener_fd_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
     {
-        perror("failed to bind the socket");
+        perror("failed to bind tcp socket");
         return;
     } 
 
-    if(listen(conn_listener_, SOMAXCONN) < 0)
+    if(listen(tcp_listener_fd_, SOMAXCONN) < 0)
     {
         perror("error on listen()");
         return;
     }
 
+    // udp socket
+    if(bind(udp_listener_fd_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
+    {
+        perror("failed to bind udp socket");
+        return;
+    } 
+
+    // timer setup
+    if(!SetupUdpClientsClearTimer())
+        return;
+
+    // adding tracking events on sockets
+    if(!AddTrackingEvents(tcp_listener_fd_, EPOLLIN))
+        return;
+        
+    if(!AddTrackingEvents(udp_listener_fd_, EPOLLIN | EPOLLERR))
+        return;
+   
+    if(!AddTrackingEvents(timer_fd_, EPOLLIN))
+        return;
+
+
     EventLoop();
+}
+
+bool Server::AddTrackingEvents(const int fd, const int events)
+{
+    epoll_event event;
+    event.data.fd = fd;
+    event.events = events;
+
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, fd, &event) < 0)
+    {
+        perror("EPOLL_CTL_ADD error");
+        return false;
+    }
+
+    return true;
 }
 
 void Server::EventLoop()
 {
-    epoll_event event;
-    event.data.fd = conn_listener_;
-    event.events = EPOLLIN;
-
     constexpr int MAX_EVENTS = 64;
     epoll_event catched_events[MAX_EVENTS];
-
-    if(epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, conn_listener_, &event) < 0)
-    {
-        perror("failed to add listener socket into tracking events list");
-        return;
-    }
 
     while(!shutdown_requested_)
     {
@@ -101,14 +144,26 @@ void Server::HandleEvent(const epoll_event& event)
 {   
     if(shutdown_requested_) return;
 
-    if(event.data.fd == conn_listener_ && event.events & EPOLLIN)
+    if(event.data.fd == timer_fd_)
+    {
+        HandleTimerEvent(event);
+        return;
+    }
+
+    if(event.data.fd == udp_listener_fd_)
+    {
+        HandleUdpEvent(event);
+        return;
+    }
+
+    if(event.data.fd == tcp_listener_fd_ && event.events & EPOLLIN)
     {
         AcceptConnection();
         return;   
     }
 
-    auto client = active_clients_.find(event.data.fd);
-    if(client == active_clients_.end()) return;
+    auto client = active_tcp_clients_.find(event.data.fd);
+    if(client == active_tcp_clients_.end()) return;
 
     if(event.events & EPOLLERR || event.events & EPOLLHUP)
     {
@@ -130,12 +185,12 @@ void Server::CloseConnection(const int client_fd)
     if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client_fd, nullptr) < 0)
         perror("failed to remove client from tracked clients");
 
-    active_clients_.erase(client_fd);
+    active_tcp_clients_.erase(client_fd);
 }
 
 void Server::AcceptConnection()
 {
-    int client_fd = accept(conn_listener_, nullptr, nullptr);
+    int client_fd = accept(tcp_listener_fd_, nullptr, nullptr);
     if(client_fd < 0)
     {
         perror("accept fail");
@@ -155,7 +210,7 @@ void Server::AcceptConnection()
         return;
     }
     
-    active_clients_.emplace(client_fd, client_fd);
+    active_tcp_clients_.emplace(client_fd, client_fd);
     ++total_clients_count_;
 }
 
@@ -213,7 +268,13 @@ std::optional<std::string> Server::ProccessMsg(const std::string& cmd)
     if(cmd == "/time")
         return GetCurrentTimeStr();
     else
+    {   
+        if(!cmd.empty() && cmd.front() == '/')
+            return cmd + " is not supported command";
+
         return cmd;
+    }
+        
 }
 
 bool Server::SendMsg(ClientInfo& client, const std::string& msg)
@@ -257,13 +318,13 @@ bool Server::SendMsg(ClientInfo& client, const std::string& msg)
     return true;
 }
 
-void Server::ModifyClientEvent(const int fd, int flag)
+void Server::ModifyClientEvent(const int client_fd, const int events)
 {
     epoll_event client_event;
-    client_event.data.fd = fd;
-    client_event.events = flag;
+    client_event.data.fd = client_fd;
+    client_event.events = events;
 
-    if(epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, fd, &client_event) < 0)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_MOD, client_fd, &client_event) < 0)
         perror("failed to modify client event");
 }
 
@@ -272,7 +333,7 @@ std::string Server::GetStats()
     constexpr int BUFFSIZE = 64;
     char buff[BUFFSIZE];
 
-    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_clients_.size(), total_clients_count_);
+    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_tcp_clients_.size() + active_udp_clients_.size(), total_clients_count_);
 
     return buff;
 }
@@ -296,17 +357,29 @@ void Server::Shutdown()
 {
     shutdown_requested_ = true;
 
-    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, conn_listener_, nullptr) < 0)
-            perror("failed to remove server from tracked event list");
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, tcp_listener_fd_, nullptr) < 0)
+            perror("failed to remove tcp listener from tracked event list");
 
-    if(close(conn_listener_) < 0) perror("listener socket close fail");
-    conn_listener_ = -1;
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, udp_listener_fd_, nullptr) < 0)
+        perror("failed to remove udp listener from tracked event list");
 
-    for(const auto &[fd, client] : active_clients_)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, timer_fd_, nullptr) < 0)
+        perror("failed to remove timer from tracked event list");
+
+    if(close(tcp_listener_fd_) < 0) perror("tcp listener socket close fail");
+    tcp_listener_fd_ = -1;
+
+    if(close(udp_listener_fd_) < 0) perror("udp listener socket close fail");
+    udp_listener_fd_ = -1;
+
+    if(close(timer_fd_) < 0) perror("timer close fail");
+    timer_fd_ = -1;
+
+    for(const auto &[fd, client] : active_tcp_clients_)
         if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, fd, nullptr) < 0)
             perror("failed to remove client from tracked clients");
     
-    active_clients_.clear();
+    active_tcp_clients_.clear();
     
     if(close(epoll_fd_) < 0) perror("epoll fd close fail");
     epoll_fd_ = -1;
