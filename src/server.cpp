@@ -304,7 +304,13 @@ std::optional<std::string> Server::ProccessMsg(const std::string& cmd)
     if(cmd == "/time")
         return GetCurrentTimeStr();
     else
+    {   
+        if(cmd.front() == '/')
+            return cmd + " is not supported command";
+
         return cmd;
+    }
+        
 }
 
 bool Server::SendMsg(ClientInfo& client, const std::string& msg)
