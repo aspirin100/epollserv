@@ -1,18 +1,16 @@
 #include "server.h"
 
 #include <iostream>
-// for uint16_t-like types
-#include <cstdint>
-
-// for time outputting
 #include <chrono>
-#include <ctime>
 
 #include <optional>
 #include <memory>
 
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <cstdint>
+#include <ctime>
 
 #include <sys/types.h>
 #include <sys/socket.h>
@@ -80,7 +78,7 @@ void Server::Start()
     if(!AddTrackingEvents(tcp_listener_fd_, EPOLLIN))
         return;
         
-    if(!AddTrackingEvents(udp_listener_fd_, EPOLLIN))
+    if(!AddTrackingEvents(udp_listener_fd_, EPOLLIN | EPOLLERR))
         return;
    
     EventLoop();
@@ -180,7 +178,41 @@ void Server::UdpReadWrite()
     constexpr int BUFFSIZE = 1<<16; // 2**16 bytes
     char buff[BUFFSIZE];
 
-    int received = recvfrom(udp_listener_fd_, buff, BUFFSIZE, )
+    sockaddr_in client{};
+    socklen_t socklen = sizeof(client);
+
+    while(true)
+    {
+        int received = recvfrom(udp_listener_fd_, buff, BUFFSIZE-1, 0, reinterpret_cast<sockaddr*>(&client), &socklen);
+
+        if(received < 0)
+        {
+            if(errno == EAGAIN || errno == EWOULDBLOCK)
+                break;
+
+            perror("recvfrom error");
+            break;
+        }
+
+        buff[received] = '\0';
+        auto proccessed_msg = ProccessUdpMsg(std::string(buff, received));
+
+        if(!proccessed_msg) continue;
+
+        int sent = sendto(udp_listener_fd_, proccessed_msg.value().c_str(), proccessed_msg.value().size(), 0, reinterpret_cast<sockaddr*>(&client), socklen);
+        if(sent < 0)
+            perror("sendto err");
+    }
+}
+
+std::optional<std::string> Server::ProccessUdpMsg(const std::string& msg)
+{
+    std::string formatted = msg;
+
+    while(formatted.back() == '\n' || formatted.back() == '\r')
+        formatted.pop_back();
+
+    return ProccessMsg(formatted);
 }
 
 void Server::CloseConnection(const int client_fd)
@@ -358,7 +390,7 @@ void Server::Shutdown()
     if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, tcp_listener_fd_, nullptr) < 0)
             perror("failed to remove tcp listener from tracked event list");
 
-    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, tcp_listener_fd_, nullptr) < 0)
+    if(epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, udp_listener_fd_, nullptr) < 0)
         perror("failed to remove udp listener from tracked event list");
 
     if(close(tcp_listener_fd_) < 0) perror("tcp listener socket close fail");
