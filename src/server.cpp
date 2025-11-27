@@ -209,7 +209,7 @@ std::optional<std::string> Server::ProccessUdpMsg(const std::string& msg)
 {
     std::string formatted = msg;
 
-    while(formatted.back() == '\n' || formatted.back() == '\r')
+    while(!formatted.empty() && formatted.back() == '\n' || formatted.back() == '\r')
         formatted.pop_back();
 
     return ProccessMsg(formatted);
@@ -305,7 +305,7 @@ std::optional<std::string> Server::ProccessMsg(const std::string& cmd)
         return GetCurrentTimeStr();
     else
     {   
-        if(cmd.front() == '/')
+        if(!cmd.empty() && cmd.front() == '/')
             return cmd + " is not supported command";
 
         return cmd;
