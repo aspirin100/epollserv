@@ -61,7 +61,7 @@ void Server::Start()
 {
     if(bind(tcp_listener_fd_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
     {
-        perror("failed to bind the socket");
+        perror("failed to bind tcp socket");
         return;
     } 
 
@@ -70,6 +70,12 @@ void Server::Start()
         perror("error on listen()");
         return;
     }
+
+    if(bind(udp_listener_fd_, reinterpret_cast<sockaddr*>(&addr_info_), sizeof(addr_info_)) < 0)
+    {
+        perror("failed to bind udp socket");
+        return;
+    } 
 
     if(!AddTrackingEvents(tcp_listener_fd_, EPOLLIN))
         return;
@@ -121,6 +127,12 @@ void Server::HandleEvent(const epoll_event& event)
 {   
     if(shutdown_requested_) return;
 
+    if(event.data.fd == udp_listener_fd_)
+    {
+        HandleUdpEvent(event);
+        return;
+    }
+
     if(event.data.fd == tcp_listener_fd_ && event.events & EPOLLIN)
     {
         AcceptConnection();
@@ -142,6 +154,33 @@ void Server::HandleEvent(const epoll_event& event)
     
     if(event.events & EPOLLOUT)
         SendMsg(client->second, client->second.to_write_buff);
+}
+
+void Server::HandleUdpEvent(const epoll_event& event)
+{
+    if(event.events & EPOLLERR)
+    {
+        int err = 0;
+        socklen_t len = sizeof(err);
+
+        if(getsockopt(udp_listener_fd_, SOL_SOCKET, SO_ERROR, &err, &len) < 0) return;
+        
+        if(err > 0) std::cout << "udp event error: " << strerror(err) << std::endl;
+        else std::cout << "udp event error\n";
+
+        return;
+    }
+    
+    if(event.events & EPOLLIN)
+        UdpReadWrite();
+}
+
+void Server::UdpReadWrite()
+{
+    constexpr int BUFFSIZE = 1<<16; // 2**16 bytes
+    char buff[BUFFSIZE];
+
+    int received = recvfrom(udp_listener_fd_, buff, BUFFSIZE, )
 }
 
 void Server::CloseConnection(const int client_fd)

@@ -68,9 +68,11 @@ private:
 
     void EventLoop();
     void HandleEvent(const epoll_event& event);
+    void HandleUdpEvent(const epoll_event& event)
 
     void ReadMsg(ClientInfo& client);
     bool SendMsg(ClientInfo& client, const std::string& msg);
+    void UdpReadWrite();
     std::optional<std::string> ProccessMsg(const std::string& msg);
 
     std::string GetStats();
