@@ -8,6 +8,7 @@
 #include <sys/timerfd.h>
 #include <time.h>
 #include <arpa/inet.h>
+#include <unistd.h>
 
 void Server::HandleUdpEvent(const epoll_event& event)
 {
@@ -49,6 +50,11 @@ void Server::UdpReadWrite()
             break;
         }
 
+        if(received == 0)
+            break;
+
+        AddActiveUdpClient(inet_ntoa(client.sin_addr), htons(client.sin_port));
+
         buff[received] = '\0';
         auto proccessed_msg = ProccessUdpMsg(std::string(buff, received));
 
@@ -58,13 +64,13 @@ void Server::UdpReadWrite()
         if(sent < 0)
             perror("sendto err");
     }
+}
 
-    std::string client_ip = inet_ntoa(client.sin_addr);
-    uint16_t client_port = htons(client.sin_port);
-
+void Server::AddActiveUdpClient(const std::string& ip, const uint16_t port)
+{
     int previous_clients_count = active_udp_clients_.size();
 
-    active_udp_clients_.emplace(client_ip+':'+std::to_string(client_port));
+    active_udp_clients_.emplace(ip+':'+std::to_string(port));
 
     if(active_udp_clients_.size() > previous_clients_count) ++total_clients_count_;
 }
@@ -81,11 +87,13 @@ std::optional<std::string> Server::ProccessUdpMsg(const std::string& msg)
 
 bool Server::SetupUdpClientsClearTimer()
 {   
+    constexpr int TIMER_INTERVAL_SEC = 60*5;
+
     itimerspec timer;
 
-    timer.it_value.tv_sec = 60*5;
+    timer.it_value.tv_sec = TIMER_INTERVAL_SEC;
     timer.it_value.tv_nsec = 0;
-    timer.it_interval.tv_sec = 60*5;
+    timer.it_interval.tv_sec = TIMER_INTERVAL_SEC;
     timer.it_interval.tv_nsec = 0;
     
     if(timerfd_settime(timer_fd_, 0, &timer, nullptr) < 0)
@@ -97,7 +105,12 @@ bool Server::SetupUdpClientsClearTimer()
     return true;
 }
 
-void Server::HandleTimerEvent()
+void Server::HandleTimerEvent(const epoll_event& event)
 {
-    active_udp_clients_.clear();
+    if(event.events & EPOLLIN)
+    {
+        uint64_t expirations;
+        read(timer_fd_, &expirations, sizeof(expirations));
+        active_udp_clients_.clear();
+    }
 }

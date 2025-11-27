@@ -144,6 +144,12 @@ void Server::HandleEvent(const epoll_event& event)
 {   
     if(shutdown_requested_) return;
 
+    if(event.data.fd == timer_fd_)
+    {
+        HandleTimerEvent(event);
+        return;
+    }
+
     if(event.data.fd == udp_listener_fd_)
     {
         HandleUdpEvent(event);
@@ -327,7 +333,7 @@ std::string Server::GetStats()
     constexpr int BUFFSIZE = 64;
     char buff[BUFFSIZE];
 
-    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_tcp_clients_.size(), total_clients_count_);
+    std::snprintf(buff, BUFFSIZE, "current active clients: %d; total clients: %d", active_tcp_clients_.size() + active_udp_clients_.size(), total_clients_count_);
 
     return buff;
 }

@@ -73,7 +73,7 @@ private:
     void EventLoop();
     void HandleEvent(const epoll_event& event);
     void HandleUdpEvent(const epoll_event& event);
-    void HandleTimerEvent();
+    void HandleTimerEvent(const epoll_event& event);
 
     void ReadMsg(ClientInfo& client);
     bool SendMsg(ClientInfo& client, const std::string& msg);
@@ -87,6 +87,7 @@ private:
 
     void SaveIntoClientWriteBuff(ClientInfo& client, const std::string& msg);
     void ClearClientWriteBuff(ClientInfo& client);
+    void AddActiveUdpClient(const std::string& ip, const uint16_t port);
 
     void ModifyClientEvent(const int fd, const int events);
     bool AddTrackingEvents(const int fd, const int events);
