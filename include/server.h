@@ -43,7 +43,9 @@ private:
     int total_clients_count_ = 0; // not unique clients total count
 
     sockaddr_in addr_info_;
-    int conn_listener_ = -1;
+
+    int tcp_listener_fd_ = -1;
+    int udp_listener_fd_ = -1;
     int epoll_fd_ = -1;
 
     bool shutdown_requested_ = false;
@@ -77,7 +79,8 @@ private:
     void SaveIntoClientWriteBuff(ClientInfo& client, const std::string& msg);
     void ClearClientWriteBuff(ClientInfo& client);
 
-    void ModifyClientEvent(const int fd, int flag);
+    void ModifyClientEvent(const int fd, const int events);
+    bool AddTrackingEvents(const int fd, const int events);
 };
 
 #endif
