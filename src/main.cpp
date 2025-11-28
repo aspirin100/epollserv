@@ -14,6 +14,7 @@ int main(int argc, char **argv)
     if(!port)
         port = 8888;
     
+    std::cout << "port: " << port << "\n"; 
     Server server(port);
     server.Start();
 

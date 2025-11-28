@@ -8,7 +8,7 @@ INCDIR := $(PROJECT_DIR)/include
 SRCDIR := $(PROJECT_DIR)/src
 OBJ_DIR := $(PROJECT_DIR)/objects
 
-# flags
+# cxx 
 CXX := g++
 CXX_STANDARD := c++17
 
