@@ -1,0 +1,21 @@
+# Maintainer: Igor Haritonov aspi.jb.ru@gmail.com
+pkgname='epollserv-bin'
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Desktop command handling tcp/udp echo-server"
+arch=('x86_64')
+url="https://github.com/aspirin100/epollserv"
+license=('unknown')
+makedepends=('gcc' 'make')
+checkdepends=('python')
+install=epollserv.install
+source=("epollserv" "epollserv.service" "$install")
+noextract=("epollserv")
+sha256sums=('SKIP' 'SKIP' 'SKIP')
+
+package() {
+    install -Dm755 "$srcdir/epollserv" "$pkgdir/usr/bin/epollserv"
+
+    install -Dm644 "$srcdir/epollserv.service" \
+        "$pkgdir/usr/lib/systemd/system/epollserv.service"
+}

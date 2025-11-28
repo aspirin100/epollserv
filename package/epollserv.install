@@ -1,0 +1,7 @@
+post_install() {
+    echo "creating user 'epollserv'..."
+
+    if ! id -u epollserv >/dev/null 2>&1; then
+        useradd -r -s /bin/false epollserv
+    fi
+}

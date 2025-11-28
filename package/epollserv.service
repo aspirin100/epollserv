@@ -1,0 +1,17 @@
+[Unit]
+Description=epoll based rcp/udp echo-server
+After=network.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/epollserv
+Restart=on-failure
+
+User=epollserv
+Group=epollserv
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
