@@ -1,29 +1,52 @@
-# Description
+# Описание
+TCP/UDP epoll эхо-сервер.
 
-Simple TCP/UDP epoll-based echo-server
+## Поддерживаемые команды
 
-## Supported commands
+1. /time - отправляет время в формате "2025-11-10 17:28:45"
+2. /stats - отправляет число активных клиентов и число клиентов за все время
+3. /shutdown - отключает сервер
 
-1. /time - returns current time in format "2025-11-10 17:28:45"
-2. /stats - returns active clients and total all-time connections count
-3. /shutdown - shutdowns the server
+Сообщения без символа '/' в начале, будут отправлены в ответ
 
-Any message that doesn't start with a '/' will be echoed back.
+## Использование(Docker)
+1. Соберите образ
+```shell
+make build-img
+```
+2. Запустите сервер(поднимет контейнер)
+```shell
+make start
+```
+3. Остановка контейнера
+```shell
+make stop
+```
+## Ручная сборка(под linux)
+1. Скомпилируйте сервер
+```shell
+make
+```
+2. Запустите
+```shell
+./epollserv [port] # по умолчанию порт 8888
+```
+## Тестирование
 
+### [клиент для тестов](./test/) 
+Инструкции по запуску в директории
 
-## Testing
+## Arch linux package и systemd unit
 
-### [client for test](./test/) 
-Instructions provided in the directory above
+Расположены в директории [package](./package).
 
-## Arch linux package and systemd unit
-
-Provided in [package](./package) directory.
-
-### To build package
-1. Compile the project
-2. Copy or move epollserv executable into [package](./package) directory
-3. Type
+### Чтобы собрать пакет
+1. Скомпилируйте сервер
+```shell
+make
+```
+2. Скопируйте или переместите исполняемый файл **epollserv** в директорию [package](./package)
+3. Соберите пакет
 ```shell
 makepkg
 ```

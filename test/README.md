@@ -1,15 +1,35 @@
-# Echo client for test
+# Эхо клиент
 
-## Usage
+## Исопльзование(Docker)
 
-1. Compile the client:
+1. Создайте образ контейнера клиента:
 ```shell
-make #type this to compile
+make build-img 
 ```
-2. Start the client
-3. Start typing messages
-
-## Optional:
+2. Запустите контейнер в интерактивном режиме:
 ```shell
-make clean #to clean directory, except client.cpp
+make interact
+```
+3. Введите адрес сервера + порт, начинайте печатать команды/сообщения
+
+## Ручная сборка(под linux)
+
+1. Соберите исполняемый файл
+```shell
+make
+```
+2. Запустите
+```
+./client
+```
+
+3. Введите адрес сервера + порт, начинайте печатать команды/сообщения
+
+```shell
+choose connection type: 1 - TCP, 2 - UDP; DEFAULT:TCP
+1 # TCP
+enter server address
+epollserv # доменное имя или ip адрес
+enter server port:
+8888 # порт по умолчанию
 ```

@@ -31,3 +31,19 @@ $(OBJ_DIR)/%.o : $(SRCDIR)/%.cpp
 clean:
 	rm -rf $(OBJ_DIR)
 	rm $(PROJECT)
+
+
+build-img:
+	docker build . -t $(PROJECT)_img
+
+NETWORK := server-net
+
+start:
+	-docker network create $(NETWORK) 2>/dev/null
+	docker run --rm -d \
+		--name $(PROJECT) \
+		--network $(NETWORK) \
+		 -p 8888:8888 $(PROJECT)_img
+
+stop:
+	docker stop $(PROJECT)
