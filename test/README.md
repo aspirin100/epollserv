@@ -7,6 +7,7 @@
 make #type this to compile
 ```
 2. Start the client
+3. Start typing messages
 
 ## Optional:
 ```shell
