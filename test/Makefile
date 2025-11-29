@@ -1,6 +1,6 @@
-.PHONY: all clean
-
 NAME := client
+.PHONY: all clean $(NAME)
+
 
 CXX := g++
 CXX_STANDARD := c++17

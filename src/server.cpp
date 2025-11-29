@@ -240,17 +240,17 @@ void Server::ReadMsg(ClientInfo& client)
         }
 
         buff[received] = '\0';
-        client.to_read_buff = std::string(buff, received);
+        client.to_read_buff.append(std::string(buff, received));
 
         while(true)
         {
-            auto msg = client.GetMsgFromQueue();
+            auto msg = client.ExtractMsg();
             if(!msg) break;
         
             auto proccessed_msg = ProccessMsg(msg.value());
             if(!proccessed_msg) continue;
 
-            if (!SendMsg(client, proccessed_msg.value())) break;
+            if (!SendMsg(client, proccessed_msg.value())) return;
         }
     } 
 }
@@ -297,7 +297,7 @@ bool Server::SendMsg(ClientInfo& client, const std::string& msg)
 
             CloseConnection(client.fd);
             perror("message sending error");
-            break;
+            return false;
         }
 
         if(sent == 0)

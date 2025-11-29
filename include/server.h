@@ -28,7 +28,7 @@ private:
         explicit ClientInfo(const int fdesc)
             : fd(fdesc) {}
 
-        std::optional<std::string> GetMsgFromQueue();
+        std::optional<std::string> ExtractMsg();
 
         ClientInfo(const ClientInfo& c) = delete;
         ClientInfo(ClientInfo&& c) = delete;
@@ -36,8 +36,6 @@ private:
         ClientInfo& operator=(ClientInfo&& rhs) = delete;
         
         ~ClientInfo();
-    private:
-        void FillMessagesQueue();
     };
 
     std::unordered_map<int, ClientInfo> active_tcp_clients_;
